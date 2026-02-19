@@ -1,0 +1,278 @@
+
+---
+title: "Research project on MN housing prices"
+author: "Shraddha Manandhar"
+date: "04-24-2025"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+
+
+
+# Introduction
+The housing market significantly influences economic stability, consumer confidence, and investment strategies. Housing prices in Minnesota have varied over the years, reflecting shifts in economic factors such as interest rates, mortgage rates, income levels, and unemployment rates. This report investigates how mortgage rates (a key component of interest rates) influence housing prices in Minnesota from 2000 to 2024. It also explores the role of other economic factors, including income, unemployment rates, CPI, and federal funds rates. 
+
+  
+
+By using a series of linear regression models, this analysis examines the impact of mortgage rates (a key component of interest rates) on the Minnesota House Price Index (MNSTHPI). We also explore the role of other economic factors, such as income, unemployment rates, CPI (Consumer Price Index), and federal funds rates, in shaping the housing market. 
+
+  
+
+The research question guiding this study is: 
+
+How do interest rates, particularly mortgage rates, influence housing prices in Minnesota, and what other economic variables play a role? 
+
+# Data Description and Preparation
+The data used in this analysis comes from multiple sources and spans the years 2000 to 2024. We focused on key economic indicators that influence housing prices, including mortgage rates, unemployment rates, income levels, CPI (Consumer Price Index), and the Federal Funds Rate. These datasets were sourced from publicly available databases such as FRED (Federal Reserve Economic Data) and Zillow. 
+
+# Data Loading and Merging
+We began by loading several datasets that include economic indicators related to housing prices. These datasets were merged based on the DATE variable to ensure that all observations align properly.
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(corrplot)
+library(broom)
+library(naniar)  
+library(knitr)
+library(car)
+knitr::opts_chunk$set(echo = TRUE)  # Display code in the report
+```
+
+
+
+
+```{r}
+# Load datasets and rename columns
+mortgage <- read_csv("MORTGAGE30US.csv") %>%
+  rename(DATE = observation_date, MortgageRate = MORTGAGE30US)
+
+housing <- read_csv("MNSTHPI.csv") %>%
+  rename(DATE = observation_date, MN_HousePrice = MNSTHPI)
+
+unemp <- read_csv("MNUR.csv") %>%
+  rename(DATE = observation_date, UnemploymentRate = MNURN)
+
+income <- read_csv("MEHOINUSMNA646N.csv") %>%
+  rename(DATE = observation_date, Income = MEHOINUSMNA646N)
+
+cpi <- read_csv("CPIAUCSL.csv") %>%
+  rename(DATE = observation_date, CPI = CPIAUCSL)
+
+fedfunds <- read_csv("FEDFUNDS.csv") %>%
+  rename(DATE = observation_date, FedFundsRate = FEDFUNDS)
+
+# Merge datasets by the DATE column
+merged_data <- reduce(list(mortgage, housing, unemp, income, cpi, fedfunds), full_join, by = "DATE")
+
+# Filter data to include observations from January 2000 onward
+merged_data <- merged_data %>% filter(DATE >= as.Date("2000-01-01"))
+
+# Check the structure of the merged dataset
+glimpse(merged_data)
+
+```
+
+The above code performs the following steps:
+
+Loading Libraries: We use the tidyverse and lubridate libraries for data manipulation and date handling.
+
+Loading Datasets: Each dataset is read into R and columns are renamed for clarity (e.g., MORTGAGE30US becomes MortgageRate).
+
+Merging Datasets: We merge all datasets by the DATE variable, using a full join to include all data points from each dataset.
+
+Filtering: The dataset is filtered to only include observations from January 2000 onward.
+
+Checking Structure: We use the glimpse() function to get a quick look at the merged dataset's structure, ensuring that the merge was successful and the data is ready for analysis.
+
+
+# Missing Data Visualization
+Next, we visualized missing values across the variables to identify if any data points needed further cleaning.
+
+```{r}
+# Visualizing missing values across variables
+gg_miss_var(merged_data, show_pct = TRUE) +
+  labs(title = "Missing Values Per Variable (Original Data)")
+```
+The plot above shows the percentage of missing data for each variable. It helps identify which variables might require imputation or exclusion.
+
+# Data Aggregation and Cleaning
+We aggregated the data by month and removed any rows with missing values to ensure a clean dataset for analysis.
+```{r}
+# Merge and clean datasets (assumes you've already read in the datasets)
+merged_data <- reduce(list(mortgage, housing, unemp, income, cpi, fedfunds), full_join, by = "DATE")
+merged_data <- merged_data %>% filter(DATE >= as.Date("2000-01-01"))
+
+# Monthly aggregation
+monthly_data <- merged_data %>%
+  mutate(month = floor_date(DATE, "month")) %>%
+  group_by(month) %>%
+  summarise(across(-DATE, ~ first(na.omit(.x)))) %>%
+  rename(DATE = month)
+
+# Clean the data by removing rows with missing values
+clean_monthly_data <- monthly_data %>% drop_na()
+
+# Check the cleaned data
+summary(clean_monthly_data)
+```
+
+The data was aggregated to a monthly level, with each observation representing a single month. Missing values were removed to ensure the data was ready for analysis.
+
+
+
+
+# Exploratory Data Analysis
+
+Exploratory Data Analysis (EDA) allows us to visualize key relationships and identify any patterns or trends in the data.
+
+# Housing Prices vs Mortgage Rates
+
+In this section, we visualize the relationship between housing prices and mortgage rates over time.
+
+```{r}
+ggplot(clean_monthly_data, aes(x = DATE)) +
+  geom_line(aes(y = MN_HousePrice), color = "#1f77b4", size = 1.2) +
+  geom_line(aes(y = MortgageRate * 50), color = "#ff7f0e", linetype = "dashed") +
+  scale_y_continuous(
+    name = "MN House Price Index",
+    sec.axis = sec_axis(~./50, name = "Mortgage Rate (%)")
+  ) +
+  labs(title = "Housing Prices vs Mortgage Rates (Scaled)", x = "Year") +
+  theme_minimal()
+```
+
+
+
+# Correlation Matrix
+
+We also calculated the correlation matrix between key economic indicators to understand the relationships between them.
+```{r}
+# Correlation matrix
+cor_data <- clean_monthly_data %>% 
+  select(MortgageRate, MN_HousePrice, UnemploymentRate, Income, CPI, FedFundsRate)
+cor_matrix <- cor(cor_data)
+corrplot::corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black")
+```
+
+# Regression Modeling
+To understand the relationship between mortgage rates and housing prices, we built several linear regression models. These models were progressively expanded by adding additional economic variables as predictors.
+
+# Regression Models
+
+# Model with Additional Predictors (Nested Models)
+
+```{r}
+# Model 1: Mortgage Rate as a predictor
+model1 <- lm(MN_HousePrice ~ MortgageRate, data = clean_monthly_data)
+
+# Model 2: Adding Unemployment Rate
+model2 <- lm(MN_HousePrice ~ MortgageRate + UnemploymentRate, data = clean_monthly_data)
+
+# Model 3: Adding Income
+model3 <- lm(MN_HousePrice ~ MortgageRate + UnemploymentRate + Income, data = clean_monthly_data)
+
+
+# Model 4: Adding CPI and Fed Funds Rate
+model4 <- lm(MN_HousePrice ~ MortgageRate + UnemploymentRate + Income + CPI + FedFundsRate, data = clean_monthly_data)
+
+# Summary of models
+summary(model1)
+summary(model2)
+summary(model3)
+summary(model4)
+
+```
+
+
+```{r}
+# Get the summary of the regression model
+summary_model <- summary(model4)
+
+# Extract coefficients and relevant statistics
+model_results <- data.frame(
+  Variables = rownames(summary_model$coefficients),
+  Coefficients = summary_model$coefficients[, 1],
+  Standard_Error = summary_model$coefficients[, 2],
+  t_value = summary_model$coefficients[, 3],
+  p_value = summary_model$coefficients[, 4]
+)
+
+# Get R-squared and Adjusted R-squared
+model_results$r_squared <- summary_model$r.squared
+model_results$adj_r_squared <- summary_model$adj.r.squared
+
+# Extract F-statistic
+model_results$F_statistic <- summary_model$fstatistic[1]
+
+# Print the results table
+model_results
+
+```
+
+We created four models with increasing complexity, starting with mortgage rates as the sole predictor and progressively adding control variables like unemployment rate, income, CPI, and federal funds rate.
+
+#Multicollinearity Check
+
+```{r}
+# Multicollinearity Check using Variance Inflation Factor (VIF)
+vif(model4)
+
+# High VIF values (above 5) suggest multicollinearity between predictors.
+```
+
+#Model Comparison and Residual Analysis
+We compare the performance of different models using the R-squared values and check the residuals to assess model fit.
+
+#Model Comparison
+
+```{r}
+model_r2 <- map_dfr(
+  list(model1, model2, model3, model4),
+  glance,
+  .id = "Model"
+) %>% 
+  select(Model, r.squared, adj.r.squared)
+
+kable(model_r2, digits = 3, caption = "R-squared Comparison Across Models")
+```
+
+#Residual Analysis
+
+```{r}
+# Residual plots for Model 4
+par(mfrow = c(2, 2))  # Create 2x2 plot layout
+
+# Residuals vs Fitted plot
+plot(model4, which = 1)  # Residuals vs Fitted values plot
+
+# Normal Q-Q plot
+plot(model4, which = 2)  # Q-Q plot to check for normality
+
+# Scale-Location plot (Homoscedasticity)
+plot(model4, which = 3)  # Scale-Location plot to check for homoscedasticity
+
+# Residuals vs Leverage plot
+plot(model4, which = 5)  # Check for influential points (outliers)
+
+```
+
+
+# Discussion
+The results of our regression models indicate that mortgage rates have a strong negative impact on housing prices in Minnesota. As mortgage rates rise, housing prices tend to fall. Additionally, the inclusion of variables such as income and CPI improves the explanatory power of the models, suggesting that other economic factors play a significant role in shaping the housing market.
+
+However, these results should be interpreted with caution. Potential issues such as omitted variable bias and the assumption of linearity in the models could affect the findings.
+
+# Conclusion
+
+This study reinforces the significant role mortgage rates play in shaping housing prices. Policymakers and real estate stakeholders should consider these relationships when planning interventions or investments. Future research could incorporate more variables like housing inventory or demographic factors, which may affect housing prices more directly. Additionally, the use of panel data or time-series forecasting methods could provide a more robust prediction model. 
+
+# Appendix: Full Correlation Table
+
+```{r}
+kable(round(cor_matrix, 2), caption = "Correlation Matrix of Key Variables")
+```
+
