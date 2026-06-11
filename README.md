@@ -3,4 +3,3 @@ This project applies statistical and machine learning techniques to analyze [pro
 
 Tools Used: R, Regression, Machine Learning
 
-Full professional README coming soon.
